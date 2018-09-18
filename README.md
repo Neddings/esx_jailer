@@ -2,9 +2,6 @@
 Modified Version of [esx_jailer](https://github.com/ESX-PUBLIC/esx_jailer)
 
 # Features
-- Jail people!
-- Saves jail info to database, aka anti-combat
-- Keeps jail time updated
 - Admins can jail people in a different jail
 - "Protection" vs cheaters that try to get out of the admin jail
 - Then someone "escapes" from the police prison, all the cops online receive a notification with the player name.
