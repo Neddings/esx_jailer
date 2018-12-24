@@ -2,8 +2,6 @@ local IsJailed 		= false
 local unjail		= false
 local JailTime		= 0
 local fastTimer		= 0
-local Jail 			= nil
-local UnJail 		= nil
 local PlayerData	= {}
 
 ESX = nil
@@ -20,20 +18,18 @@ AddEventHandler('esx:playerLoaded', function(xPlayer)
   PlayerData = xPlayer
 end)
 
-RegisterNetEvent('esx:setJob')
-AddEventHandler('esx:setJob', function(job)
-  PlayerData.job = job
-end)
+
 
 RegisterNetEvent('esx_jailer:jail')
-AddEventHandler('esx_jailer:jail', function(jailTime, group, target)
-	if IsJailed then -- don't allow multiple jails
+AddEventHandler('esx_jailer:jail', function(jailTime, group, name)
+	if IsJailed then
 		return
-	end
+    end
 
-	JailTime = jailTime
-
-	local name = target
+    JailTime = jailTime
+    
+    local playerPed = PlayerPedId()
+    local name = name
 
 	if group == 'cop' then
 		Jail = Config.CopJail
@@ -41,13 +37,11 @@ AddEventHandler('esx_jailer:jail', function(jailTime, group, target)
 	elseif group == 'admin' then
 		Jail = Config.AdminJail
 		UnJail = Config.AdminUnJail
-	end
-
-	local sourcePed = GetPlayerPed(-1)
-	if DoesEntityExist(sourcePed) then
-		Citizen.CreateThread(function()
-		
-			-- Assign jail skin to user
+    end
+    
+	if DoesEntityExist(playerPed) then
+        Citizen.CreateThread(function()
+            
 			TriggerEvent('skinchanger:getSkin', function(skin)
 				if skin.sex == 0 then
 					TriggerEvent('skinchanger:loadClothes', skin, Config.Uniforms['prison_wear'].male)
@@ -55,24 +49,25 @@ AddEventHandler('esx_jailer:jail', function(jailTime, group, target)
 					TriggerEvent('skinchanger:loadClothes', skin, Config.Uniforms['prison_wear'].female)
 				end
 			end)
-			
-			-- Clear player
-			SetPedArmour(sourcePed, 0)
-			ClearPedBloodDamage(sourcePed)
-			ResetPedVisibleDamage(sourcePed)
-			ClearPedLastWeaponDamage(sourcePed)
-			ResetPedMovementClipset(sourcePed, 0)
+
+			SetPedArmour(playerPed, 0)
+			ClearPedBloodDamage(playerPed)
+			ResetPedVisibleDamage(playerPed)
+			ClearPedLastWeaponDamage(playerPed)
+			ResetPedMovementClipset(playerPed, 0)
 
 			TriggerEvent('esx_basicneeds:healPlayer')
 			
-			SetEntityCoords(sourcePed, Jail.x, Jail.y, Jail.z)
+			SetEntityCoords(playerPed, Jail.x, Jail.y, Jail.z)
 			IsJailed = true
-			unjail = false
-			while JailTime > 0 and not unjail do
-				sourcePed = GetPlayerPed(-1)
-				RemoveAllPedWeapons(sourcePed, true)
-				if IsPedInAnyVehicle(sourcePed, false) then
-					ClearPedTasksImmediately(sourcePed)
+            unjail = false
+            
+            while JailTime > 0 and not unjail do
+                playerPed = PlayerPedId()
+                
+				RemoveAllPedWeapons(playerPed, true)
+				if IsPedInAnyVehicle(playerPed, false) then
+					ClearPedTasksImmediately(playerPed)
 				end
 
 				if JailTime % 120 == 0 then
@@ -80,14 +75,12 @@ AddEventHandler('esx_jailer:jail', function(jailTime, group, target)
 				end
 
 				Citizen.Wait(20000)
-				
-				-- Is the player trying to escape?
 
 				if group == 'cop' then
 					Jail = Config.CopJail
 					UnJail = Config.CopUnJail
 
-					if GetDistanceBetweenCoords(GetEntityCoords(sourcePed), Jail.x, Jail.y, Jail.z) > 10 then
+					if GetDistanceBetweenCoords(GetEntityCoords(playerPed), Jail.x, Jail.y, Jail.z) > 10 then
 						TriggerServerEvent('esx_jailer:run', name)
 						TriggerServerEvent('esx_jailer:unjailTime', -1)
 						JailTime = 0
@@ -98,20 +91,26 @@ AddEventHandler('esx_jailer:jail', function(jailTime, group, target)
 					Jail = Config.AdminJail
 					UnJail = Config.AdminUnJail
 
-					if GetDistanceBetweenCoords(GetEntityCoords(sourcePed), Jail.x, Jail.y, Jail.z) > 10 then
-						SetEntityCoords(sourcePed, Jail.x, Jail.y, Jail.z)
-						ESX.SetTimeout(4000, function()
-							TriggerEvent('esx_ambulancejob:revive', -1)
+					ESX.SetTimeout(4000, function()
+						ESX.TriggerServerCallback('esx_jailer:getDeathStatus', function(isDead)
+							if isDead then
+								TriggerEvent('esx_ambulancejob:revive', -1)
+							end
 						end)
+					end)
+
+					if GetDistanceBetweenCoords(GetEntityCoords(playerPed), Jail.x, Jail.y, Jail.z) > 10 then
+						SetEntityCoords(playerPed, Jail.x, Jail.y, Jail.z)
 					end
-				end
-			end
-			-- jail time served
+                end
+                
+                JailTime = JailTime - 20
+            end
+            
 			TriggerServerEvent('esx_jailer:unjailTime', -1)
-			SetEntityCoords(sourcePed, UnJail.x, UnJail.y, UnJail.z)
+			SetEntityCoords(playerPed, UnJail.x, UnJail.y, UnJail.z)
 			IsJailed = false
 
-			-- Change back the user skin
 			ESX.TriggerServerCallback('esx_skin:getPlayerSkin', function(skin)
 				TriggerEvent('skinchanger:loadSkin', skin)
 			end)
@@ -143,7 +142,6 @@ AddEventHandler('esx_jailer:unjail', function(source)
 	fastTimer = 0
 end)
 
--- When player respawns / joins
 AddEventHandler('playerSpawned', function(spawn)
 	if IsJailed then
 		SetEntityCoords(GetPlayerPed(-1), Jail.x, Jail.y, Jail.z)
@@ -152,9 +150,9 @@ AddEventHandler('playerSpawned', function(spawn)
 	end
 end)
 
--- When script starts
+
 Citizen.CreateThread(function()
-	Citizen.Wait(2000) -- wait for mysql-async to be ready, this should be enough time
+	Citizen.Wait(2000)
 	TriggerServerEvent('esx_jailer:checkJail')
 end)
 
