@@ -2,7 +2,6 @@ ESX = nil
 
 TriggerEvent('esx:getSharedObject', function(obj) ESX = obj end)
 
--- jail command
 TriggerEvent('es:addGroupCommand', 'jail', 'admin', function(source, args, user)
 	if args[1] and GetPlayerName(args[1]) ~= nil and tonumber(args[2]) then
 		TriggerEvent('esx_jailer:sendToJail', tonumber(args[1]), tonumber(args[2] * 60), 'admin')
@@ -13,7 +12,6 @@ end, function(source, args, user)
 	TriggerClientEvent('chat:addMessage', source, { args = { '^1SYSTEM', 'Permissões insuficientes.' } })
 end, {help = "Coloque um jogador na prisão", params = {{name = "id", help = "ID do Player"}, {name = "time", help = "tempo de prisão em minutos"}}})
 
--- unjail
 TriggerEvent('es:addGroupCommand', 'unjail', 'admin', function(source, args, user)
 	if args[1] then
 		if GetPlayerName(args[1]) ~= nil then
@@ -28,31 +26,41 @@ end, function(source, args, user)
 	TriggerClientEvent('chat:addMessage', source, { args = { '^1SYSTEM', 'Permissões insuficientes.' } })
 end, {help = "Retire uma pessoa da prisão", params = {{name = "id", help = "Player ID"}}})
 
--- send to jail and register in database
 RegisterServerEvent('esx_jailer:sendToJail')
 AddEventHandler('esx_jailer:sendToJail', function(target, jailTime, group)
-	local name = GetCharacterName(target)
-	local identifier = GetPlayerIdentifiers(target)[1]
-	MySQL.Async.fetchAll('SELECT * FROM jail WHERE identifier=@id', {['@id'] = identifier}, function(result)
-		if result[1] ~= nil then
-			MySQL.Async.execute("UPDATE jail SET jail_time=@jt WHERE identifier=@id", {['@id'] = identifier, ['@jt'] = jailTime})
+    local identifier = GetPlayerIdentifiers(target)[1]
+    local name = GetCharacterName(target)
+    local _group = group
+
+	MySQL.Async.fetchAll('SELECT * FROM jail WHERE identifier = @identifier', {
+		['@identifier'] = identifier
+	}, function(result)
+		if result[1] then
+			MySQL.Async.execute('UPDATE jail SET jail_time = @jail_time WHERE identifier = @identifier', {
+				['@identifier'] = identifier,
+				['@jail_time'] = jailTime
+			})
 		else
-			MySQL.Async.execute("INSERT INTO jail (identifier,jail_time) VALUES (@identifier,@jail_time)", {['@identifier'] = identifier, ['@jail_time'] = jailTime})
+			MySQL.Async.execute('INSERT INTO jail (identifier, jail_time) VALUES (@identifier, @jail_time)', {
+				['@identifier'] = identifier,
+				['@jail_time'] = jailTime
+			})
 		end
 	end)
-
+	
 	TriggerClientEvent('esx_policejob:unrestrain', target)
-	TriggerClientEvent('esx_jailer:jail', target, jailTime, group, name)
+	TriggerClientEvent('esx_jailer:jail', target, jailTime, _group, name)
 end)
 
--- should the player be in jail?
 RegisterServerEvent('esx_jailer:checkJail')
 AddEventHandler('esx_jailer:checkJail', function()
-	local player = source -- cannot parse source to client trigger for some weird reason
-	local identifier = GetPlayerIdentifiers(player)[1] -- get steam identifier
-	MySQL.Async.fetchAll('SELECT * FROM jail WHERE identifier=@id', {['@id'] = identifier}, function(result)
+    local _source = source
+    local identifier = GetPlayerIdentifiers(_source)[1]
+    MySQL.Async.fetchAll('SELECT * FROM jail WHERE identifier = @identifier', {
+		['@identifier'] = identifier
+	}, function(result)
 		if result[1] ~= nil then
-			TriggerClientEvent('esx_jailer:jail', player, tonumber(result[1].jail_time))
+			TriggerClientEvent('esx_jailer:jail', _source, tonumber(result[1].jail_time))
 		end
 	end)
 end)
@@ -68,7 +76,6 @@ AddEventHandler('esx_jailer:run', function(name)
 	end
 end)
 
--- unjail via command
 RegisterServerEvent('esx_jailer:unjailQuest')
 AddEventHandler('esx_jailer:unjailQuest', function(source)
 	if source ~= nil then
@@ -76,13 +83,11 @@ AddEventHandler('esx_jailer:unjailQuest', function(source)
 	end
 end)
 
--- unjail after time served
 RegisterServerEvent('esx_jailer:unjailTime')
 AddEventHandler('esx_jailer:unjailTime', function()
 	unjail(source)
 end)
 
--- keep jailtime updated
 RegisterServerEvent('esx_jailer:updateRemaining')
 AddEventHandler('esx_jailer:updateRemaining', function(jailTime)
 	local identifier = GetPlayerIdentifiers(source)[1]
@@ -92,6 +97,31 @@ AddEventHandler('esx_jailer:updateRemaining', function(jailTime)
 		end
 	end)
 end)
+
+ESX.RegisterServerCallback('esx_jailer:getDeathStatus', function(source, cb)
+	local identifier = GetPlayerIdentifiers(source)[1]
+
+	MySQL.Async.fetchScalar('SELECT isDead FROM users WHERE identifier = @identifier', {
+		['@identifier'] = identifier
+	}, function(isDead)
+		cb(isDead)
+	end)
+end)
+
+function unjail(target)
+	local identifier = GetPlayerIdentifiers(target)[1]
+	MySQL.Async.fetchAll('SELECT * FROM jail WHERE identifier = @identifier', {
+		['@identifier'] = identifier
+	}, function(result)
+		if result[1] then
+			MySQL.Async.execute('DELETE from jail WHERE identifier = @identifier', {
+				['@identifier'] = identifier
+			})
+		end
+	end)
+
+	TriggerClientEvent('esx_jailer:unjail', target)
+end
 
 function unjail(target)
 	local identifier = GetPlayerIdentifiers(target)[1]
@@ -105,7 +135,6 @@ function unjail(target)
 end
 
 function GetCharacterName(source)
-	-- fetch identity in sync
 	local result = MySQL.Sync.fetchAll('SELECT * FROM users WHERE identifier = @identifier',
 	{
 		['@identifier'] = GetPlayerIdentifiers(source)[1]
